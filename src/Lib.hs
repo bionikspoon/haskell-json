@@ -42,13 +42,22 @@ stringP :: String -> Parser String
 stringP = traverse charP
 
 spanP :: (Char -> Bool) -> Parser String
-spanP fn = notNull $ Parser $ \input ->
-  let (token, input') = span fn input in Just (input', token)
+spanP fn = Parser
+  $ \input -> let (token, input') = span fn input in Just (input', token)
+
+spanPR :: (Char -> Bool) -> Parser String
+spanPR = notNull . spanP
 
 notNull :: Parser [a] -> Parser [a]
 notNull (Parser p) = Parser $ \input -> do
   s <- p input
   if null (snd s) then Nothing else Just s
+
+ws :: Parser String
+ws = spanP isSpace
+
+sepBy :: Parser a -> Parser b -> Parser [b]
+sepBy sep element = (:) <$> element <*> many (sep *> element) <|> pure []
 
 jsonNull :: Parser JsonValue
 jsonNull = JsonNull <$ stringP "null"
@@ -58,11 +67,29 @@ jsonBool =
   (JsonBool True <$ stringP "true") <|> (JsonBool False <$ stringP "false")
 
 jsonNumber :: Parser JsonValue
-jsonNumber = f <$> spanP isDigit where f ds = JsonNumber $ read ds
+jsonNumber = f <$> spanPR isDigit where f ds = JsonNumber $ read ds
 
 jsonString :: Parser JsonValue
 jsonString = JsonString <$> (charP '"' *> spanP (/= '"') <* charP '"')
 
-jsonValue :: Parser JsonValue
-jsonValue = jsonNull <|> jsonBool <|> jsonNumber <|> jsonString
+jsonArray :: Parser JsonValue
+jsonArray = JsonArray <$> (charP '[' *> ws *> elements <* ws <* charP ']')
+  where elements = sepBy (ws *> charP ',' <* ws) jsonValue
 
+jsonObject :: Parser JsonValue
+jsonObject = JsonObject <$> (charP '{' *> ws *> pairs <* ws <* charP '}') where
+  pairs = sepBy (ws *> charP ',' <* ws) pair
+  pair =
+    (\key _ value -> (key, value))
+      <$> (charP '"' *> spanP (/= '"') <* charP '"')
+      <*> (ws *> charP ':' <* ws)
+      <*> jsonValue
+
+jsonValue :: Parser JsonValue
+jsonValue =
+  jsonNull
+    <|> jsonBool
+    <|> jsonNumber
+    <|> jsonString
+    <|> jsonArray
+    <|> jsonObject

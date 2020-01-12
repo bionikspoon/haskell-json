@@ -1,0 +1,3 @@
+--pattern **/*.{cabal,hs,yaml}
+--no-notify
+--clear
